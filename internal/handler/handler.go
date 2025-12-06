@@ -6,7 +6,6 @@ import (
     "urlshortner/internal/model"
     "urlshortner/internal/service"
     "github.com/go-chi/chi/v5"
-    "os"
 )
 
 type URLHandler struct {

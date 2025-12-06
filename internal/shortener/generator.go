@@ -1,18 +1,25 @@
 package shortener
 
 import (
-    "sync/atomic"
+    "crypto/rand"
+    "math/big"
+    "time"
+
     "github.com/speps/go-hashids/v2"
 )
 
-var counter uint64
-
 func Generate() string {
-    id := atomic.AddUint64(&counter, 1)
+    // Use timestamp (nanoseconds) + random number for unique IDs across replicas
+    timestamp := time.Now().UnixNano()
+    randomNum, _ := rand.Int(rand.Reader, big.NewInt(999999))
+    
     hd := hashids.NewData()
     hd.Salt = "super-segredo-2025-change-in-prod"
     hd.MinLength = 6
     h, _ := hashids.NewWithData(hd)
-    code, _ := h.Encode([]int{int(id)})
+    
+    // Combine timestamp truncated + random for unique ID
+    code, _ := h.Encode([]int{int(timestamp % 1000000000), int(randomNum.Int64())})
     return code
 }
+
