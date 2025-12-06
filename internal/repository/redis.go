@@ -6,6 +6,7 @@ import (
     "github.com/redis/go-redis/v9"
     "os"
     "strconv"
+    "time"
 )
 
 type RedisRepository struct {
@@ -22,7 +23,7 @@ func NewRedisRepository() *RedisRepository {
     }
 }
 
-func (r *RedisRepository) Save(ctx context.Context, url model.URL) error {
+func (r *Redis.Impl) Save(ctx context.Context, url model.URL) error {
     key := "url:" + url.ID
     return r.client.HSet(ctx, key, map[string]interface{}{
         "long": url.LongURL,

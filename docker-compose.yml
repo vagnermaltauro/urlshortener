@@ -9,7 +9,7 @@ services:
       - redis_data:/data
 
   traefik:
-    image: traefik:v3.1
+    image: traefik:v2.11
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
