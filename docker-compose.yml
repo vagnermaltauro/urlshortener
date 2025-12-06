@@ -34,8 +34,12 @@ services:
       - redis
     environment:
       - REDIS_ADDR=redis:6379
+      - DB_PATH=/data/urls.db
+    volumes:
+      - sqlite_data:/data
     deploy:
       replicas: 4
 
 volumes:
   redis_data:
+  sqlite_data:
