@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  app:
+    build: .
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.app.rule=Host(`localhost`)
+      - traefik.http.routers.app.entrypoints=web
+      - traefik.http.services.app.loadbalancer.server.port=8080
+      - traefik.http.middlewares.ratelimit.ratelimit.average=100
+      - traefik.http.middlewares.ratelimit.ratelimit.burst=300
+      - traefik.http.routers.app.middlewares=ratelimit
+    depends_on:
+      - redis
+    environment:
+      - REDIS_ADDR=redis:6379
+    deploy:
+      replicas: 4
+
+volumes:
+  redis_data:
