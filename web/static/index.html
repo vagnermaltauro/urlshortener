@@ -1,0 +1,20 @@
+<!DOCTYPE html><html><head><title>MiniShort</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui;max-width:600px;margin:100px auto;padding:20px;text-align:center}
+input,button{padding:15px;font-size:1.2em;width:100%;margin:10px 0;border-radius:8px;border:1px solid #ccc}
+button{background:#0066ff;color:white;cursor:pointer}
+.result{margin-top:30px;padding:20px;background:#f0f8ff;border-radius:12px;font-size:1.3em}</style>
+</head><body>
+<h1>Encurtador da Firma™</h1>
+<input type="url" id="url" placeholder="https://youtube.com/watch?v=dQw4w9WgXcQ" required>
+<button onclick="go()">Encurtar agora</button>
+<div id="res" class="result" style="display:none">
+  <strong>Pronto:</strong><br>
+  <a id="link" href="" target="_blank"></a>
+</div>
+<script>
+async function go(){const u=document.getElementById('url').value;
+const r=await fetch('/api/shorten',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:u})});
+const d=await r.json();if(d.short_url){document.getElementById('link').href=d.short_url;
+document.getElementById('link').textContent=d.short_url;document.getElementById('res').style.display='block';}}
+</script>
+</body></html>
