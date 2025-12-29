@@ -26,7 +26,7 @@ func (r *RedisRepository) Save(ctx context.Context, url model.URL) error {
     key := "url:" + url.ID
     return r.client.HSet(ctx, key, map[string]interface{}{
         "long":    url.LongURL,
-        "clicks":  0,
+        "clicks":  url.Clicks,
         "created": url.CreatedAt,
     }).Err()
 }
@@ -38,11 +38,17 @@ func (r *RedisRepository) FindByID(ctx context.Context, id string) (*model.URL, 
         return nil, err
     }
     clicks, _ := strconv.ParseInt(data["clicks"], 10, 64)
-    r.client.HIncrBy(ctx, key, "clicks", 1)
     return &model.URL{
-        ID:      id,
-        LongURL: data["long"],
-        Clicks:  clicks + 1,
+        ID:        id,
+        LongURL:   data["long"],
+        Clicks:    clicks,
+        CreatedAt: data["created"],
     }, nil
 }
+
+func (r *RedisRepository) IncrementClicks(ctx context.Context, id string) error {
+    key := "url:" + id
+    return r.client.HIncrBy(ctx, key, "clicks", 1).Err()
+}
+
 

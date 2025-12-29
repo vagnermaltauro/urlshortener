@@ -18,13 +18,13 @@ func NewSQLiteRepository(dbPath string) (*SQLiteRepository, error) {
 		return nil, err
 	}
 
-	// Create table if not exists
+	// Create table if not exists - using TEXT for ISO 8601 date
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS urls (
 			id TEXT PRIMARY KEY,
 			long_url TEXT NOT NULL,
 			clicks INTEGER DEFAULT 0,
-			created_at INTEGER NOT NULL
+			created_at TEXT NOT NULL
 		)
 	`)
 	if err != nil {
@@ -55,13 +55,15 @@ func (r *SQLiteRepository) FindByID(ctx context.Context, id string) (*model.URL,
 		return nil, err
 	}
 
-	// Increment clicks
-	_, _ = r.db.ExecContext(ctx, "UPDATE urls SET clicks = clicks + 1 WHERE id = ?", id)
-	url.Clicks++
-
 	return &url, nil
+}
+
+func (r *SQLiteRepository) IncrementClicks(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, "UPDATE urls SET clicks = clicks + 1 WHERE id = ?", id)
+	return err
 }
 
 func (r *SQLiteRepository) Close() error {
 	return r.db.Close()
 }
+

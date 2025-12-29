@@ -25,7 +25,7 @@ func (s *URLService) CreateShortURL(ctx context.Context, longURL string) (*model
     url := &model.URL{
         ID:        id,
         LongURL:   longURL,
-        CreatedAt: time.Now().Unix(),
+        CreatedAt: time.Now().Format(time.RFC3339),
     }
     if err := s.repo.Save(ctx, *url); err != nil {
         return nil, err
