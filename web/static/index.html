@@ -315,7 +315,7 @@
         function hideMessages() {
             errorMessage.classList.remove('show');
             successMessage.classList.remove('show');
-            result.classList.remove('show');
+            // NÃO esconde o result aqui - ele deve permanecer visível
         }
 
         function formatDate(isoString) {
@@ -349,6 +349,7 @@
             }
 
             hideMessages();
+            result.classList.remove('show'); // Esconde resultado anterior
             showSpinner();
 
             try {
@@ -362,17 +363,24 @@
 
                 const data = await response.json();
 
+                console.log('Response status:', response.status);
+                console.log('Response data:', data);
+
                 if (!response.ok) {
                     throw new Error(data.message || data.error || 'Erro ao encurtar URL');
                 }
 
                 // Display result
+                console.log('Setting shortUrl...');
                 shortUrl.href = data.short_url;
                 shortUrl.textContent = data.short_url;
                 shortCode.textContent = data.short_code;
                 expiresAt.textContent = formatDate(data.expires_at);
 
+                console.log('Showing result div...');
                 result.classList.add('show');
+
+                console.log('Showing success message...');
                 showSuccess('URL encurtada com sucesso!');
 
                 // Clear input
