@@ -12,35 +12,74 @@ import (
 	"urlshortner/internal/domain/repository"
 )
 
-// RedisCacheRepository implements the CacheRepository interface using Redis Cluster
+// RedisCacheRepository implements the CacheRepository interface using Redis
+// Supports both single instance and cluster modes
 type RedisCacheRepository struct {
-	client *redis.ClusterClient
+	// Universal client interface that works with both single instance and cluster
+	client redis.UniversalClient
 }
 
 // NewRedisCacheRepository creates a new Redis cache repository
-// addrs should be the addresses of Redis cluster nodes (e.g., ["redis-master1:6379", "redis-master2:6379", "redis-master3:6379"])
-func NewRedisCacheRepository(addrs []string) repository.CacheRepository {
-	client := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs: addrs,
+// If singleAddr is provided, connects to single Redis instance
+// If clusterAddrs is provided, connects to Redis Cluster
+// Defaults to single instance at localhost:6379 if neither is provided
+func NewRedisCacheRepository(singleAddr string, clusterAddrs []string) repository.CacheRepository {
+	var client redis.UniversalClient
 
-		// Connection pool settings for high performance
-		PoolSize:     100, // Maximum number of connections
-		MinIdleConns: 20,  // Minimum idle connections to keep ready
+	// Determine mode: single instance or cluster
+	if singleAddr != "" {
+		// Single instance mode (simpler, recommended for most use cases)
+		client = redis.NewClient(&redis.Options{
+			Addr: singleAddr,
 
-		// Timeout settings optimized for sub-50ms latency
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
+			// Connection pool settings
+			PoolSize:     100,
+			MinIdleConns: 20,
 
-		// Retry settings for resilience
-		MaxRetries:      3,
-		MinRetryBackoff: 8 * time.Millisecond,
-		MaxRetryBackoff: 512 * time.Millisecond,
+			// Timeout settings
+			DialTimeout:  5 * time.Second,
+			ReadTimeout:  3 * time.Second,
+			WriteTimeout: 3 * time.Second,
 
-		// Route commands to replicas for reads
-		RouteByLatency: true,
-		RouteRandomly:  false,
-	})
+			// Retry settings
+			MaxRetries:      3,
+			MinRetryBackoff: 8 * time.Millisecond,
+			MaxRetryBackoff: 512 * time.Millisecond,
+		})
+	} else if len(clusterAddrs) > 0 {
+		// Cluster mode (for high availability scenarios)
+		client = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs: clusterAddrs,
+
+			// Connection pool settings
+			PoolSize:     100,
+			MinIdleConns: 20,
+
+			// Timeout settings
+			DialTimeout:  5 * time.Second,
+			ReadTimeout:  3 * time.Second,
+			WriteTimeout: 3 * time.Second,
+
+			// Retry settings
+			MaxRetries:      3,
+			MinRetryBackoff: 8 * time.Millisecond,
+			MaxRetryBackoff: 512 * time.Millisecond,
+
+			// Route commands to replicas for reads
+			RouteByLatency: true,
+			RouteRandomly:  false,
+		})
+	} else {
+		// Fallback to localhost single instance
+		client = redis.NewClient(&redis.Options{
+			Addr:         "localhost:6379",
+			PoolSize:     100,
+			MinIdleConns: 20,
+			DialTimeout:  5 * time.Second,
+			ReadTimeout:  3 * time.Second,
+			WriteTimeout: 3 * time.Second,
+		})
+	}
 
 	return &RedisCacheRepository{
 		client: client,

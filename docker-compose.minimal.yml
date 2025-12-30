@@ -1,0 +1,79 @@
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+  postgres-primary:
+    image: postgres:17-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-urlshortener}
+      POSTGRES_USER: ${POSTGRES_USER:-urlshortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urlshortener123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U urlshortener"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - backend
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: url-shortener
+    ports:
+      - "8080:8080"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      VERSION: ${VERSION:-2.0.0}
+      MACHINE_ID: 1
+
+      POSTGRES_PRIMARY_HOST: postgres-primary
+      POSTGRES_PRIMARY_PORT: 5432
+      POSTGRES_REPLICA_HOSTS: postgres-primary
+      POSTGRES_USER: ${POSTGRES_USER:-urlshortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urlshortener123}
+      POSTGRES_DB: ${POSTGRES_DB:-urlshortener}
+      POSTGRES_SSLMODE: disable
+
+      REDIS_ADDR: redis:6379
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backend
+    restart: unless-stopped

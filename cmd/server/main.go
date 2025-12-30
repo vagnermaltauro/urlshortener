@@ -40,8 +40,8 @@ func main() {
 	defer writeDB.Close()
 	defer readDB.Close()
 
-	// Initialize Redis Cluster
-	cacheRepo := redis.NewRedisCacheRepository(cfg.RedisClusterAddrs)
+	// Initialize Redis (supports both single instance and cluster modes)
+	cacheRepo := redis.NewRedisCacheRepository(cfg.RedisAddr, cfg.RedisClusterAddrs)
 
 	// Initialize repositories
 	urlRepo := postgres.NewPostgresURLRepository(writeDB, readDB)

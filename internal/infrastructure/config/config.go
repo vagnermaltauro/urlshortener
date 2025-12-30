@@ -23,8 +23,9 @@ type Config struct {
 	PostgresDBName       string
 	PostgresSSLMode      string
 
-	// Redis Cluster settings
-	RedisClusterAddrs []string
+	// Redis settings (supports both single instance and cluster)
+	RedisAddr         string   // Single Redis instance address (e.g., "localhost:6379")
+	RedisClusterAddrs []string // Redis Cluster addresses (for cluster mode)
 
 	// Server settings
 	ServerPort string
@@ -48,8 +49,9 @@ func Load() *Config {
 		PostgresDBName:       getEnv("POSTGRES_DB", "urlshortener"),
 		PostgresSSLMode:      getEnv("POSTGRES_SSLMODE", "disable"),
 
-		// Redis Cluster
-		RedisClusterAddrs: getEnvAsSlice("REDIS_CLUSTER_ADDRS", []string{"localhost:6379"}, ","),
+		// Redis (single instance or cluster)
+		RedisAddr:         getEnv("REDIS_ADDR", ""),
+		RedisClusterAddrs: getEnvAsSlice("REDIS_CLUSTER_ADDRS", []string{}, ","),
 
 		// Server
 		ServerPort: getEnv("SERVER_PORT", "8080"),
