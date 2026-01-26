@@ -1,14 +1,6 @@
-networks:
-  backend:
-    driver: bridge
-  frontend:
-    driver: bridge
-
 volumes:
   postgres_data:
-  redis_master1_data:
-  redis_master2_data:
-  redis_master3_data:
+  redis_data:
 
 services:
   # PostgreSQL Primary (Write + Read for now, replicas can be added later)
@@ -50,19 +42,16 @@ services:
           memory: 512M
           cpus: '0.5'
     restart: unless-stopped
-    networks:
-      - backend
-
-  # Redis Cluster Master 1
-  redis-master1:
+  # Redis (single instance)
+  redis:
     image: redis:7-alpine
-    container_name: redis-master1
+    container_name: redis
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf:ro
-      - redis_master1_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
     ports:
-      - "7001:6379"
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -72,93 +61,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 256M
           cpus: '0.5'
         reservations:
-          memory: 256M
+          memory: 128M
           cpus: '0.25'
     restart: unless-stopped
-    networks:
-      - backend
 
-  # Redis Cluster Master 2
-  redis-master2:
-    image: redis:7-alpine
-    container_name: redis-master2
-    command: redis-server /usr/local/etc/redis/redis.conf
-    volumes:
-      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf:ro
-      - redis_master2_data:/data
-    ports:
-      - "7002:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-    restart: unless-stopped
-    networks:
-      - backend
-
-  # Redis Cluster Master 3
-  redis-master3:
-    image: redis:7-alpine
-    container_name: redis-master3
-    command: redis-server /usr/local/etc/redis/redis.conf
-    volumes:
-      - ./redis-cluster.conf:/usr/local/etc/redis/redis.conf:ro
-      - redis_master3_data:/data
-    ports:
-      - "7003:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-        reservations:
-          memory: 256M
-          cpus: '0.25'
-    restart: unless-stopped
-    networks:
-      - backend
-
-  # Redis Cluster Initialization
-  redis-cluster-init:
-    image: redis:7-alpine
-    container_name: redis-cluster-init
-    command: >
-      sh -c "
-      sleep 10 &&
-      redis-cli --cluster create
-      redis-master1:6379 redis-master2:6379 redis-master3:6379
-      --cluster-yes
-      "
-    depends_on:
-      redis-master1:
-        condition: service_healthy
-      redis-master2:
-        condition: service_healthy
-      redis-master3:
-        condition: service_healthy
-    networks:
-      - backend
-
-  # Application (4 replicas)
+  # Application
   app:
     build:
       context: .
@@ -180,15 +90,11 @@ services:
       POSTGRES_SSLMODE: disable
 
       # Redis config
-      REDIS_CLUSTER_ADDRS: redis-master1:6379,redis-master2:6379,redis-master3:6379
+      REDIS_ADDR: redis:6379
     depends_on:
       postgres-primary:
         condition: service_healthy
-      redis-master1:
-        condition: service_healthy
-      redis-master2:
-        condition: service_healthy
-      redis-master3:
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health/live"]
@@ -196,8 +102,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    ports:
+      - "8080:8080"
     deploy:
-      replicas: ${APP_REPLICAS:-4}
       resources:
         limits:
           memory: 256M
@@ -206,49 +113,3 @@ services:
           memory: 128M
           cpus: '0.25'
     restart: unless-stopped
-    networks:
-      - backend
-      - frontend
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.app.rule=Host(`${APP_HOST:-localhost}`)
-      - traefik.http.routers.app.entrypoints=web
-      - traefik.http.services.app.loadbalancer.server.port=8080
-      - traefik.http.services.app.loadbalancer.healthcheck.path=/health/ready
-      - traefik.http.services.app.loadbalancer.healthcheck.interval=10s
-      - traefik.http.middlewares.ratelimit.ratelimit.average=1000
-      - traefik.http.middlewares.ratelimit.ratelimit.burst=3000
-      - traefik.http.routers.app.middlewares=ratelimit
-
-  # Traefik Load Balancer
-  traefik:
-    image: traefik:v2.11
-    container_name: traefik
-    command:
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
-      - --log.level=INFO
-      - --accesslog=true
-    ports:
-      - "80:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    depends_on:
-      - app
-    healthcheck:
-      test: ["CMD", "traefik", "healthcheck", "--ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.25'
-        reservations:
-          memory: 64M
-          cpus: '0.1'
-    restart: unless-stopped
-    networks:
-      - frontend
