@@ -6,7 +6,6 @@
     <title>MiniShort - Encurtador de URLs</title>
 
     <style>
-        /* ========== Reset & Base Styles ========== */
         * {
             margin: 0;
             padding: 0;
@@ -25,7 +24,6 @@
             color: #333;
         }
 
-        /* ========== Container ========== */
         .container {
             background: white;
             padding: 40px;
@@ -33,7 +31,6 @@
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
         }
 
-        /* ========== Typography ========== */
         h1 {
             color: #667eea;
             margin-bottom: 10px;
@@ -46,7 +43,6 @@
             font-size: 1.1em;
         }
 
-        /* ========== Form Elements ========== */
         label {
             display: block;
             text-align: left;
@@ -106,7 +102,6 @@
             cursor: not-allowed;
         }
 
-        /* ========== Result Display ========== */
         #result {
             margin-top: 30px;
             padding: 20px;
@@ -156,7 +151,6 @@
             background: #38a169;
         }
 
-        /* ========== Messages ========== */
         .message {
             padding: 15px;
             margin-top: 20px;
@@ -181,7 +175,6 @@
             border: 1px solid #9ae6b4;
         }
 
-        /* ========== Loading Spinner ========== */
         .spinner {
             display: none;
             width: 40px;
@@ -202,7 +195,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* ========== Metadata ========== */
         .metadata {
             margin-top: 15px;
             font-size: 0.9em;
@@ -213,7 +205,6 @@
             color: #333;
         }
 
-        /* ========== Responsive Design ========== */
         @media (max-width: 768px) {
             body {
                 margin: 20px auto;
@@ -276,7 +267,6 @@
     </div>
 
     <script>
-        // ========== DOM Elements ==========
         const form = document.getElementById('urlForm');
         const urlInput = document.getElementById('urlInput');
         const submitBtn = document.getElementById('submitBtn');
@@ -289,7 +279,6 @@
         const expiresAt = document.getElementById('expiresAt');
         const copyBtn = document.getElementById('copyBtn');
 
-        // ========== Utility Functions ==========
         function showSpinner() {
             spinner.classList.add('show');
             submitBtn.disabled = true;
@@ -315,7 +304,6 @@
         function hideMessages() {
             errorMessage.classList.remove('show');
             successMessage.classList.remove('show');
-            // NÃO esconde o result aqui - ele deve permanecer visível
         }
 
         function formatDate(isoString) {
@@ -329,27 +317,25 @@
             });
         }
 
-        // ========== Form Submission ==========
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
 
             const url = urlInput.value.trim();
 
-            // Client-side validation
             if (!url) {
                 showError('Por favor, insira uma URL');
                 return;
             }
 
             try {
-                new URL(url); // Validate URL format
+                new URL(url);
             } catch {
                 showError('Por favor, insira uma URL válida (ex: https://exemplo.com)');
                 return;
             }
 
             hideMessages();
-            result.classList.remove('show'); // Esconde resultado anterior
+            result.classList.remove('show');
             showSpinner();
 
             try {
@@ -370,7 +356,6 @@
                     throw new Error(data.message || data.error || 'Erro ao encurtar URL');
                 }
 
-                // Display result
                 console.log('Setting shortUrl...');
                 shortUrl.href = data.short_url;
                 shortUrl.textContent = data.short_url;
@@ -383,7 +368,6 @@
                 console.log('Showing success message...');
                 showSuccess('URL encurtada com sucesso!');
 
-                // Clear input
                 urlInput.value = '';
 
             } catch (error) {
@@ -394,7 +378,6 @@
             }
         });
 
-        // ========== Copy to Clipboard ==========
         copyBtn.addEventListener('click', async () => {
             const urlText = shortUrl.textContent;
 
@@ -402,7 +385,6 @@
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     await navigator.clipboard.writeText(urlText);
                 } else {
-                    // Fallback for older browsers
                     const textArea = document.createElement('textarea');
                     textArea.value = urlText;
                     textArea.style.position = 'fixed';
@@ -426,7 +408,6 @@
             }
         });
 
-        // ========== Input Focus on Load ==========
         window.addEventListener('load', () => {
             urlInput.focus();
         });

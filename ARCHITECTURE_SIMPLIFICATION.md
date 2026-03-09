@@ -39,7 +39,7 @@ CREATE TABLE urls_2026_01 (already existed from background job)
 **Error:** `redis: pings to all nodes are failing, picking a random node`
 
 **Root Cause:**
-- Redis Cluster with 3 masters + cluster initialization service
+- Redis Cluster with 3 masters + initialization service (removido)
 - Intermittent connectivity issues between app containers and cluster nodes
 - Overcomplicated for the scale (100M URLs/day works fine with single instance)
 - Health checks frequently failing (503 errors)
@@ -62,7 +62,7 @@ CREATE TABLE urls_2026_01 (already existed from background job)
 
 **Solution:**
 ```yaml
-# docker-compose.simple.yml - Single Redis with persistence
+# docker-compose.yml - Single Redis with persistence
 redis:
   image: redis:7-alpine
   command: >
@@ -84,60 +84,23 @@ redis:
 
 ## 📊 **Architecture Comparison**
 
-### **Before (Complex)**
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Traefik (Load Balancer)              │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-          ┌────────────┼────────────┬────────────┐
-          │            │            │            │
-      ┌───▼───┐    ┌──▼────┐   ┌──▼────┐   ┌──▼────┐
-      │ App 1 │    │ App 2 │   │ App 3 │   │ App 4 │
-      └───┬───┘    └───┬───┘   └───┬───┘   └───┬───┘
-          │            │            │            │
-          └────────────┼────────────┼────────────┘
-                       │            │
-        ┌──────────────┼────────────┼─────────────┐
-        │              │            │             │
-    ┌───▼────┐   ┌────▼───┐  ┌────▼───┐    ┌────▼───┐
-    │ Redis  │   │ Redis  │  │ Redis  │    │ Redis  │
-    │Master1 │   │Master2 │  │Master3 │    │Cluster │
-    │        │   │        │  │        │    │ Init   │
-    └────────┘   └────────┘  └────────┘    └────────┘
-        │
-        │
-    ┌───▼──────────┐
-    │  PostgreSQL  │
-    │   Primary    │
-    └──────────────┘
-
-Total Containers: 10
-Total Memory: ~3.5GB
-Failure Points: Redis cluster coordination, network between nodes
-```
+### **Before (Historical, removed)**
+- Redis cluster (3 masters + init) and multiple app replicas
+- Higher operational complexity and more failure points
 
 ### **After (Simplified)**
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Traefik (Load Balancer)              │
-└──────────────────────┬──────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│                   App (1x)                   │
+└──────────────────────┬───────────────────────┘
                        │
-          ┌────────────┼────────────┬────────────┐
-          │            │            │            │
-      ┌───▼───┐    ┌──▼────┐   ┌──▼────┐   ┌──▼────┐
-      │ App 1 │    │ App 2 │   │ App 3 │   │ App 4 │
-      └───┬───┘    └───┬───┘   └───┬───┘   └───┬───┘
-          │            │            │            │
-          └────────────┼────────────┼────────────┘
-                       │            │
-                   ┌───▼────┐   ┌──▼──────────┐
-                   │ Redis  │   │  PostgreSQL │
-                   │ Single │   │   Primary   │
-                   └────────┘   └─────────────┘
+                 ┌─────▼─────┐     ┌───────────┐
+                 │  Redis    │     │ PostgreSQL│
+                 │  Single   │     │  Primary  │
+                 └───────────┘     └───────────┘
 
-Total Containers: 6 (-40%)
-Total Memory: ~2GB (-43%)
+Total Containers: 3
+Total Memory: ~1.3GB
 Failure Points: Minimal (single instance failures only)
 ```
 
@@ -223,7 +186,7 @@ CREATE TABLE urls_2026_01;
 **Prevents future partition gaps**
 
 ### **5. Docker Compose**
-**File:** `docker-compose.simple.yml` (NEW)
+**File:** `docker-compose.yml`
 
 ```yaml
 redis:
@@ -299,45 +262,26 @@ docker build -t urlshortener:v2.1 .
 **Step 2:** Test with single Redis in staging
 ```bash
 # Use simplified docker-compose
-docker-compose -f docker-compose.simple.yml up -d
+docker compose up -d
 ```
 
-**Step 3:** Monitor metrics for 24 hours
+**Step 3:** Validate locally
 - Cache hit rate (target: 95%+)
 - p95 latency (target: <50ms)
-- Memory usage (should be <512MB)
+- Memory usage (should be <256MB for Redis)
 - Error rate (target: <0.01%)
-
-**Step 4:** Gradual production rollout
-- Deploy to 25% traffic (1 replica)
-- Validate metrics
-- Deploy to 100% traffic (all 4 replicas)
-- Decommission Redis Cluster nodes
 
 ### **Rollback Plan**
 ```bash
-# If issues arise, instant rollback to cluster mode
-docker-compose -f docker-compose.yml up -d  # Uses old cluster config
-# No code changes needed - backward compatible!
+# If issues arise, rebuild containers
+docker compose up -d --build
 ```
 
 ---
 
-## 💡 **Additional Simplification Opportunities**
+## 💡 **Optional Future Improvements**
 
-### **1. Reduce App Replicas (Low Priority)**
-**Current:** 4 replicas
-**Sufficient:** 2 replicas (with auto-scaling)
-
-**Rationale:**
-- 100M URLs/day = ~1,500 writes/s, ~15K reads/s
-- Single replica can handle ~5K req/s
-- 2 replicas provide 50% headroom + redundancy
-- Use Kubernetes HPA to scale to 4 during peak hours
-
-**Savings:** 50% memory (256MB → 128MB per replica × 2 fewer)
-
-### **2. Monthly Partition Automation (Medium Priority)**
+### **1. Monthly Partition Automation**
 **Current:** Manual partition creation + background job for next month
 **Better:** Automated partition creation for next 12 months on startup
 
@@ -351,11 +295,11 @@ func CreateFuturePartitions(ctx context.Context, months int) {
 }
 ```
 
-### **3. PostgreSQL Read Replicas (Future)**
+### **2. PostgreSQL Read Replicas (Optional)**
 **Current:** Single primary for both reads and writes
-**Future:** 1 primary (writes) + 1-2 replicas (reads)
+**Optional:** 1 primary (writes) + 1-2 replicas (reads)
 
-**When Needed:** When read load exceeds 10K req/s sustained
+**When Needed:** Sustained read load >10K req/s
 
 ---
 
@@ -373,7 +317,7 @@ func CreateFuturePartitions(ctx context.Context, months int) {
 
 ### **3. Health Check Sensitivity**
 - Redis connectivity flakiness → 503 cascade
-- Single instance = more predictable health signals
+- Single instance = more predictable operational signals
 - Simpler architecture = easier observability
 
 ### **4. Backward Compatibility Enables Safe Experimentation**
@@ -386,9 +330,9 @@ func CreateFuturePartitions(ctx context.Context, months int) {
 ## ✅ **Recommendations**
 
 ### **Immediate Actions**
-1. ✅ **Deploy `docker-compose.simple.yml`** to production
+1. ✅ **Use `docker-compose.yml`** for local/estudo
 2. ✅ **Update `.env.example`** with `REDIS_ADDR=redis:6379`
-3. ✅ **Remove Redis Cluster configuration files** (`redis-cluster.conf`)
+3. ✅ **Removed Redis Cluster configuration files**
 4. ✅ **Update `CLAUDE.md`** documentation with simplified architecture
 
 ### **Short-Term (Next Sprint)**
@@ -431,4 +375,4 @@ The simplified architecture **successfully eliminates unnecessary complexity** w
 
 ---
 
-**Next Steps:** Deploy `docker-compose.simple.yml` and monitor for 24 hours before full rollout.
+**Next Steps:** Use `docker-compose.yml` and monitor for 24 hours before full rollout.

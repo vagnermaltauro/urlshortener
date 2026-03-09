@@ -8,7 +8,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Logger is the interface for structured logging
 type Logger interface {
 	Debug(msg string, fields ...interface{})
 	Info(msg string, fields ...interface{})
@@ -18,22 +17,17 @@ type Logger interface {
 	With(fields ...interface{}) Logger
 }
 
-// zerologLogger implements the Logger interface using zerolog
 type zerologLogger struct {
 	logger zerolog.Logger
 }
 
-// New creates a new structured logger
-// level: "debug", "info", "warn", "error"
-// environment: "development", "staging", "production"
 func New(level, environment string) Logger {
-	// Parse log level
+
 	logLevel, err := zerolog.ParseLevel(level)
 	if err != nil {
 		logLevel = zerolog.InfoLevel
 	}
 
-	// Configure output (console for dev, JSON for production)
 	var output io.Writer = os.Stdout
 	if environment == "development" {
 		output = zerolog.ConsoleWriter{
@@ -42,7 +36,6 @@ func New(level, environment string) Logger {
 		}
 	}
 
-	// Create logger
 	logger := zerolog.New(output).
 		Level(logLevel).
 		With().
@@ -80,7 +73,6 @@ func (l *zerologLogger) With(fields ...interface{}) Logger {
 	}
 }
 
-// toMap converts variadic key-value pairs to a map
 func toMap(fields []interface{}) map[string]interface{} {
 	m := make(map[string]interface{})
 	for i := 0; i < len(fields)-1; i += 2 {

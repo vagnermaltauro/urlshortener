@@ -1,18 +1,12 @@
--- Idempotent schema creation - ensures partitions exist even if table was already created
--- This script runs every time the container starts (via init trigger)
 
--- Check if table doesn't exist, create it
 DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_name = 'urls' AND table_schema = 'public'
     ) THEN
-        -- Enable required extensions
         CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
-        -- Main URLs table (partitioned by creation time for optimal performance)
-        -- Monthly partitions allow efficient data management and querying
         CREATE TABLE urls (
             id BIGINT NOT NULL,
             short_code VARCHAR(11) NOT NULL,
@@ -26,15 +20,12 @@ BEGIN
             CONSTRAINT check_positive_clicks CHECK (clicks >= 0)
         ) PARTITION BY RANGE (created_at);
 
-        -- Create indexes for fast lookups
         CREATE INDEX idx_urls_short_code ON urls (short_code);
         CREATE INDEX idx_urls_expires_at ON urls (expires_at);
         CREATE INDEX idx_urls_created_at ON urls (created_at DESC);
     END IF;
 END $$;
 
--- Ensure all required partitions exist (idempotent)
--- Create partitions for all months in 2025 and 2026
 CREATE TABLE IF NOT EXISTS urls_2025_01 PARTITION OF urls FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 CREATE TABLE IF NOT EXISTS urls_2025_02 PARTITION OF urls FOR VALUES FROM ('2025-02-01') TO ('2025-03-01');
 CREATE TABLE IF NOT EXISTS urls_2025_03 PARTITION OF urls FOR VALUES FROM ('2025-03-01') TO ('2025-04-01');
@@ -49,7 +40,6 @@ CREATE TABLE IF NOT EXISTS urls_2025_11 PARTITION OF urls FOR VALUES FROM ('2025
 CREATE TABLE IF NOT EXISTS urls_2025_12 PARTITION OF urls FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
 CREATE TABLE IF NOT EXISTS urls_2026_01 PARTITION OF urls FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
 
--- Ensure functions exist (idempotent with CREATE OR REPLACE)
 CREATE OR REPLACE FUNCTION create_next_partition()
 RETURNS void AS $$
 DECLARE
@@ -58,17 +48,13 @@ DECLARE
     start_date TEXT;
     end_date TEXT;
 BEGIN
-    -- Calculate the date for the next month
     partition_date := DATE_TRUNC('month', NOW() + INTERVAL '1 month');
 
-    -- Generate partition name (e.g., urls_2025_05)
     partition_name := 'urls_' || TO_CHAR(partition_date, 'YYYY_MM');
 
-    -- Calculate date range for this partition
     start_date := partition_date::TEXT;
     end_date := (partition_date + INTERVAL '1 month')::TEXT;
 
-    -- Create the partition if it doesn't exist
     EXECUTE format(
         'CREATE TABLE IF NOT EXISTS %I PARTITION OF urls FOR VALUES FROM (%L) TO (%L)',
         partition_name,

@@ -6,7 +6,6 @@ import (
 	"urlshortner/internal/model"
 )
 
-
 type CompositeRepository struct {
 	redis  *RedisRepository
 	sqlite *SQLiteRepository

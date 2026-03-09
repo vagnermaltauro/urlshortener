@@ -11,7 +11,7 @@ A production-grade URL shortener service built with **Clean Architecture** in Go
 - 5-year URL retention with automatic expiration
 - High availability 24/7 with horizontal scaling
 - PostgreSQL with monthly partitioning for persistent storage
-- Redis Cluster (3 masters) for distributed caching
+- Redis (single instance) for caching
 - Graceful shutdown with connection draining
 - Structured logging with zerolog (JSON output)
 - Health check endpoints (liveness, readiness, startup)
@@ -32,7 +32,7 @@ A production-grade URL shortener service built with **Clean Architecture** in Go
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      HTTP Layer (Adapters)                  │
-│  handler/url_handler.go, handler/health_handler.go          │
+│  handler/url_handler.go                                     │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -74,27 +74,26 @@ A production-grade URL shortener service built with **Clean Architecture** in Go
 - Go 1.24+
 - Docker & Docker Compose
 - PostgreSQL 17 (via Docker)
-- Redis 7 Cluster (via Docker)
+- Redis 7 (single instance via Docker)
 
 ### Local Development (Recommended: Docker Compose)
 
 ```bash
-# Start entire infrastructure (PostgreSQL, Redis Cluster, App x4, Traefik)
-docker-compose up --build
+# Start entire infrastructure (PostgreSQL, Redis, App)
+docker compose up --build
 
 # The application will be available at:
-# - http://localhost (Traefik load balancer)
-# - Health: http://localhost/health/ready
-# - Metrics: http://localhost/metrics
+# - http://localhost:8080
+# - Metrics: http://localhost:8080/metrics
 
 # View logs
-docker-compose logs -f app
+docker compose logs -f app
 
 # Stop all services
-docker-compose down
+docker compose down
 
 # Clean up volumes (WARNING: deletes all data)
-docker-compose down -v
+docker compose down -v
 ```
 
 ### Environment Variables
@@ -106,7 +105,7 @@ Copy `.env.example` to `.env` and configure:
 ENVIRONMENT=production
 LOG_LEVEL=info
 VERSION=2.0.0
-MACHINE_ID=1  # MUST be unique per replica (0-1023)
+MACHINE_ID=1
 
 # PostgreSQL
 POSTGRES_DB=urlshortener
@@ -117,18 +116,15 @@ POSTGRES_PRIMARY_PORT=5432
 POSTGRES_REPLICA_HOSTS=postgres-primary  # Comma-separated for multiple replicas
 POSTGRES_SSLMODE=disable
 
-# Redis Cluster
-REDIS_CLUSTER_ADDRS=redis-master1:6379,redis-master2:6379,redis-master3:6379
+# Redis
+REDIS_ADDR=redis:6379
 
 # Server
 SERVER_PORT=8080
-APP_HOST=localhost
 
-# Docker Compose
-APP_REPLICAS=4
 ```
 
-**CRITICAL:** Each app replica MUST have a unique `MACHINE_ID` (0-1023) for Snowflake ID generation.
+**Note:** `MACHINE_ID` is required for Snowflake IDs (0-1023).
 
 ### Manual Build (Native Go)
 
@@ -136,7 +132,7 @@ APP_REPLICAS=4
 # Build binary
 CGO_ENABLED=0 go build -ldflags="-s -w" -o urlshortener ./cmd/server
 
-# Run (requires PostgreSQL and Redis Cluster already running)
+# Run (requires PostgreSQL and Redis already running)
 ./urlshortener
 ```
 
@@ -146,10 +142,10 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -o urlshortener ./cmd/server
 # Build image
 docker build -t urlshortener:latest .
 
-# Run container (requires PostgreSQL and Redis Cluster)
+# Run container (requires PostgreSQL and Redis)
 docker run -p 8080:8080 \
   -e POSTGRES_PRIMARY_HOST=host.docker.internal \
-  -e REDIS_CLUSTER_ADDRS=host.docker.internal:7001,host.docker.internal:7002,host.docker.internal:7003 \
+  -e REDIS_ADDR=host.docker.internal:6379 \
   urlshortener:latest
 ```
 
@@ -206,20 +202,7 @@ Response 200:
 (HTML frontend from web/static/index.html)
 ```
 
-**4. Health Checks**
-```http
-GET /health/live
-Response 200: {"status": "ok"}
-
-GET /health/ready
-Response 200: {"status": "ok", "checks": {...}}
-Response 503: {"status": "degraded", "checks": {...}}
-
-GET /health/startup
-Response 200: {"status": "ok", "checks": {...}}
-```
-
-**5. Metrics**
+**4. Metrics**
 ```http
 GET /metrics
 Response 200:
@@ -322,14 +305,12 @@ SELECT delete_expired_urls();
 
 ---
 
-## Redis Cluster
+## Redis (Single Instance)
 
 ### Configuration
 
-**Topology:** 3 master nodes (no replicas in basic setup)
-- redis-master1: `localhost:7001`
-- redis-master2: `localhost:7002`
-- redis-master3: `localhost:7003`
+**Topology:** Single instance
+- redis: `localhost:6379`
 
 **Persistence:** AOF (Append-Only File)
 - `appendfsync everysec` - 1-second durability window
@@ -445,24 +426,6 @@ TTL: None (deleted after flush)
 
 **Endpoint:** `GET /metrics` (JSON format)
 
-### Health Checks
-
-**1. Liveness Probe** (`/health/live`)
-- Simple "ok" response
-- Kubernetes: Restart container if fails
-
-**2. Readiness Probe** (`/health/ready`)
-- Checks PostgreSQL connectivity
-- Checks Redis Cluster connectivity
-- Returns `degraded` if any check fails
-- Kubernetes: Remove from service endpoints if fails
-
-**3. Startup Probe** (`/health/startup`)
-- Same as readiness
-- Kubernetes: Delay liveness/readiness checks until passes
-
----
-
 ## Deployment
 
 ### Docker Compose Architecture
@@ -470,19 +433,13 @@ TTL: None (deleted after flush)
 ```yaml
 Services:
   - postgres-primary: PostgreSQL 17 (write + read)
-  - redis-master1/2/3: Redis Cluster (3 masters)
-  - redis-cluster-init: Initialize cluster (one-time)
-  - app: Application (4 replicas by default)
-  - traefik: Load balancer + rate limiting
+  - redis: Redis 7 (single instance)
+  - app: Application
 ```
-
-**Networks:**
-- `backend`: PostgreSQL, Redis, App
-- `frontend`: Traefik, App
 
 **Volumes:**
 - `postgres_data`: PostgreSQL persistent data
-- `redis_master1/2/3_data`: Redis persistent data
+- `redis_data`: Redis persistent data
 
 ### Resource Limits
 
@@ -490,47 +447,23 @@ Services:
 - Memory: 1GB limit, 512MB reserved
 - CPU: 1.0 limit, 0.5 reserved
 
-**Redis (each master):**
-- Memory: 512MB limit, 256MB reserved
-- CPU: 0.5 limit, 0.25 reserved
-
-**App (each replica):**
+**Redis:**
 - Memory: 256MB limit, 128MB reserved
 - CPU: 0.5 limit, 0.25 reserved
 
-**Traefik:**
-- Memory: 128MB limit, 64MB reserved
-- CPU: 0.25 limit, 0.1 reserved
+**App:**
+- Memory: 256MB limit, 128MB reserved
+- CPU: 0.5 limit, 0.25 reserved
 
 ### Scaling
 
-**Horizontal (recommended):**
-```bash
-# Scale to 8 app replicas
-docker-compose up --scale app=8
-
-# CRITICAL: Each replica MUST have unique MACHINE_ID
-# Use orchestration tools (Kubernetes, Docker Swarm) for production
-```
+**Horizontal:**
+- For this study project, keep a single app container.
 
 **Vertical (PostgreSQL/Redis):**
 - Edit `docker-compose.yml` resource limits
 - Tune PostgreSQL settings (shared_buffers, effective_cache_size, etc.)
-- Increase Redis maxmemory
-
-### Rate Limiting (Traefik)
-
-**Configuration:**
-- Average: 1,000 req/s
-- Burst: 3,000 req/s
-- Algorithm: Token bucket
-
-**Override:**
-Edit `docker-compose.yml` labels:
-```yaml
-- traefik.http.middlewares.ratelimit.ratelimit.average=2000
-- traefik.http.middlewares.ratelimit.ratelimit.burst=6000
-```
+- Increase Redis maxmemory in `redis.conf`
 
 ---
 
@@ -561,7 +494,7 @@ max_wal_size = 2GB
 
 ### Redis Optimization
 
-**Configuration (redis-cluster.conf):**
+**Configuration (redis.conf):**
 ```conf
 maxmemory-policy allkeys-lru
 appendonly yes
@@ -573,22 +506,22 @@ slowlog-log-slower-than 10000  # 10ms
 
 **Monitoring:**
 ```bash
-# Check cluster status
-docker exec redis-master1 redis-cli cluster info
+# Ping Redis
+docker exec redis redis-cli ping
 
 # View slowlog
-docker exec redis-master1 redis-cli slowlog get 10
+docker exec redis redis-cli slowlog get 10
 
 # Monitor memory
-docker exec redis-master1 redis-cli info memory
+docker exec redis redis-cli info memory
 ```
 
 ### Application Optimization
 
 **Connection Pooling:**
-- Write DB: 50 connections (tuned for 4 app replicas)
+- Write DB: 50 connections
 - Read DB: 100 connections (higher for 10:1 read/write ratio)
-- Redis: 100 connections per replica
+- Redis: 100 connections
 
 **Cache Strategy:**
 - 30-day TTL for URL cache
@@ -609,27 +542,23 @@ docker exec redis-master1 redis-cli info memory
 
 **1. App fails to start: "connection refused" (PostgreSQL)**
 ```bash
-# Check PostgreSQL health
-docker-compose ps postgres-primary
-docker-compose logs postgres-primary
+# Check PostgreSQL
+docker compose ps postgres-primary
+docker compose logs postgres-primary
 
 # Verify network connectivity
 docker exec -it <app-container> nc -zv postgres-primary 5432
 
-# Solution: Wait for PostgreSQL to become healthy
-# docker-compose already has depends_on with health checks
+# Solution: Wait for PostgreSQL to be ready
 ```
 
-**2. App fails to start: "cluster is down" (Redis)**
+**2. App fails to start: "connection refused" (Redis)**
 ```bash
-# Check Redis Cluster status
-docker exec redis-master1 redis-cli cluster info
+# Check Redis
+docker exec redis redis-cli ping
 
-# Check cluster initialization
-docker-compose logs redis-cluster-init
-
-# Solution: Restart cluster initialization
-docker-compose restart redis-cluster-init
+# Check Redis logs
+docker compose logs redis
 ```
 
 **3. High latency on redirects**
@@ -638,21 +567,21 @@ docker-compose restart redis-cluster-init
 curl http://localhost/metrics | jq .cache_hit_rate
 
 # If <90%: Check Redis connectivity
-docker exec redis-master1 redis-cli ping
+docker exec redis redis-cli ping
 
 # Check Redis memory usage
-docker exec redis-master1 redis-cli info memory
+docker exec redis redis-cli info memory
 
 # Solution: Increase Redis memory or adjust eviction policy
 ```
 
 **4. Duplicate short codes (collision)**
 ```bash
-# Check MACHINE_ID uniqueness
-docker-compose exec app printenv MACHINE_ID
+# Check MACHINE_ID
+docker compose exec app printenv MACHINE_ID
 
-# Each replica MUST have unique MACHINE_ID (0-1023)
-# Solution: Set unique MACHINE_ID per replica in docker-compose.yml
+# Ensure MACHINE_ID is set (0-1023)
+# Solution: Set MACHINE_ID in .env
 ```
 
 **5. Slow PostgreSQL queries**
@@ -662,7 +591,7 @@ docker exec postgres-primary psql -U urlshortener -c "ALTER SYSTEM SET log_min_d
 docker exec postgres-primary psql -U urlshortener -c "SELECT pg_reload_conf();"
 
 # Check logs
-docker-compose logs postgres-primary | grep "duration:"
+docker compose logs postgres-primary | grep "duration:"
 
 # Solution: Add missing indexes or tune configuration
 ```
@@ -687,33 +616,24 @@ SELECT count(*) FROM pg_stat_activity WHERE datname = 'urlshortener';
 
 **Redis:**
 ```bash
-# Connect to cluster
-docker exec -it redis-master1 redis-cli -c
-
-# Check cluster nodes
-CLUSTER NODES
-
-# Check key distribution
-docker exec redis-master1 redis-cli --cluster check redis-master1:6379
+# Connect to Redis
+docker exec -it redis redis-cli
 
 # Count keys by pattern
-docker exec redis-master1 redis-cli --scan --pattern 'url:*' | wc -l
-docker exec redis-master1 redis-cli --scan --pattern 'clicks:buffer:*' | wc -l
+docker exec redis redis-cli --scan --pattern 'url:*' | wc -l
+docker exec redis redis-cli --scan --pattern 'clicks:buffer:*' | wc -l
 ```
 
 **Application:**
 ```bash
 # Follow logs
-docker-compose logs -f app
-
-# Check health
-curl http://localhost/health/ready | jq .
+docker compose logs -f app
 
 # Check metrics
-curl http://localhost/metrics | jq .
+curl http://localhost:8080/metrics | jq .
 
 # Test create URL
-curl -X POST http://localhost/api/shorten \
+curl -X POST http://localhost:8080/api/shorten \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com/test"}' | jq .
 ```
@@ -726,7 +646,7 @@ curl -X POST http://localhost/api/shorten \
 
 ```bash
 # 1. Create short URL
-curl -X POST http://localhost/api/shorten \
+curl -X POST http://localhost:8080/api/shorten \
   -H "Content-Type: application/json" \
   -d '{"url": "https://github.com"}' | jq .
 
@@ -738,14 +658,14 @@ curl -X POST http://localhost/api/shorten \
 # }
 
 # 2. Test redirect
-curl -I http://localhost/0Ab3XyZ
+curl -I http://localhost:8080/0Ab3XyZ
 
 # Response:
 # HTTP/1.1 301 Moved Permanently
 # Location: https://github.com
 
 # 3. Test expiration (URL not found after 5 years)
-curl -I http://localhost/ExpiredCode
+curl -I http://localhost:8080/ExpiredCode
 # Response: HTTP/1.1 404 Not Found
 ```
 
@@ -755,10 +675,10 @@ curl -I http://localhost/ExpiredCode
 
 ```bash
 # Example with Apache Bench
-ab -n 10000 -c 100 -p payload.json -T application/json http://localhost/api/shorten
+ab -n 10000 -c 100 -p payload.json -T application/json http://localhost:8080/api/shorten
 
 # Example with wrk
-wrk -t4 -c100 -d30s http://localhost/api/shorten
+wrk -t4 -c100 -d30s http://localhost:8080/api/shorten
 ```
 
 **Expected Performance:**
@@ -786,9 +706,8 @@ wrk -t4 -c100 -d30s http://localhost/api/shorten
 - `internal/adapter/idgen/snowflake.go` - Snowflake ID generator
 - `internal/adapter/idgen/base62.go` - Base62 encoder/decoder
 - `internal/adapter/repository/postgres/url_repository.go` - PostgreSQL implementation
-- `internal/adapter/repository/redis/cache_repository.go` - Redis Cluster implementation
+- `internal/adapter/repository/redis/cache_repository.go` - Redis cache implementation
 - `internal/adapter/http/handler/url_handler.go` - HTTP handlers
-- `internal/adapter/http/handler/health_handler.go` - Health check handlers
 - `internal/adapter/http/dto/*.go` - Request/Response DTOs
 
 ### Infrastructure
@@ -810,9 +729,9 @@ wrk -t4 -c100 -d30s http://localhost/api/shorten
 - `migrations/001_initial_schema.down.sql` - Rollback migration
 
 ### Infrastructure as Code
-- `docker-compose.yml` - Complete orchestration
+- `docker-compose.yml` - Local orchestration
 - `Dockerfile` - Multi-stage build
-- `redis-cluster.conf` - Redis Cluster configuration
+- `redis.conf` - Redis single instance configuration
 - `.env.example` - Environment variables template
 
 ### Frontend
@@ -831,8 +750,7 @@ wrk -t4 -c100 -d30s http://localhost/api/shorten
 - No string concatenation for SQL queries
 
 **3. Rate Limiting:**
-- Traefik enforces 1,000 req/s average, 3,000 burst
-- Protects against DoS attacks
+- Not included in this repo; add a reverse proxy or gateway in production
 
 **4. Secrets Management:**
 - PostgreSQL password via environment variable
@@ -840,7 +758,7 @@ wrk -t4 -c100 -d30s http://localhost/api/shorten
 - Use secrets management (Vault, AWS Secrets Manager) in production
 
 **5. TLS/SSL:**
-- Production: Use HTTPS with Traefik + Let's Encrypt
+- Production: Terminate HTTPS at your reverse proxy/gateway
 - Database: Enable `sslmode=require` for PostgreSQL in production
 
 **6. CORS:**
@@ -854,7 +772,7 @@ wrk -t4 -c100 -d30s http://localhost/api/shorten
 **Breaking Changes:**
 - SQLite → PostgreSQL (schema incompatible)
 - hashids → Snowflake + Base62 (ID format incompatible)
-- Single Redis → Redis Cluster (configuration change)
+- Redis Cluster → Redis single instance (configuration change)
 
 **Migration Strategy:**
 1. Deploy new system in parallel
@@ -877,13 +795,13 @@ COPY urls FROM '/path/to/urls.csv' CSV HEADER;
 ## Production Checklist
 
 - [ ] Change `POSTGRES_PASSWORD` from default
-- [ ] Set unique `MACHINE_ID` for each replica (0-1023)
+- [ ] Set `MACHINE_ID` (0-1023)
 - [ ] Configure PostgreSQL `sslmode=require`
-- [ ] Enable HTTPS with Traefik + Let's Encrypt
+- [ ] Enable HTTPS at your reverse proxy/gateway
 - [ ] Configure CORS policy
 - [ ] Set up monitoring (Prometheus + Grafana)
 - [ ] Configure log aggregation (ELK, Loki, CloudWatch)
-- [ ] Set up alerting for health check failures
+- [ ] Set up alerting for errors and latency
 - [ ] Configure backup strategy (PostgreSQL, Redis snapshots)
 - [ ] Test disaster recovery procedures
 - [ ] Implement PostgreSQL read replicas (optional)

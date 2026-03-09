@@ -1,2 +1,1 @@
--- This migration is idempotent and designed to run on every startup
--- No rollback needed for initialization migrations
+

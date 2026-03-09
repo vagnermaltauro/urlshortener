@@ -5,28 +5,25 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq" // PostgreSQL driver
+	_ "github.com/lib/pq"
 )
 
-// PostgresConfig holds the configuration for PostgreSQL connection
 type PostgresConfig struct {
 	Host     string
 	Port     int
 	User     string
 	Password string
 	DBName   string
-	SSLMode  string // disable, require, verify-ca, verify-full
+	SSLMode  string
 
-	// Connection pool settings for optimal performance
-	MaxOpenConns    int           // Maximum number of open connections
-	MaxIdleConns    int           // Maximum number of idle connections
-	ConnMaxLifetime time.Duration // Maximum lifetime of a connection
-	ConnMaxIdleTime time.Duration // Maximum idle time of a connection
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
 }
 
-// NewPostgresConnection creates a new PostgreSQL database connection with connection pooling
 func NewPostgresConnection(cfg PostgresConfig) (*sql.DB, error) {
-	// Build Data Source Name (DSN)
+
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 		cfg.Host,
@@ -37,20 +34,16 @@ func NewPostgresConnection(cfg PostgresConfig) (*sql.DB, error) {
 		cfg.SSLMode,
 	)
 
-	// Open database connection
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Configure connection pool for high performance
-	// These settings are optimized for ~1,500 writes/sec and ~15,000 reads/sec
-	db.SetMaxOpenConns(cfg.MaxOpenConns)       // Limit concurrent connections
-	db.SetMaxIdleConns(cfg.MaxIdleConns)       // Keep connections ready
-	db.SetConnMaxLifetime(cfg.ConnMaxLifetime) // Prevent stale connections
-	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime) // Close unused connections
+	db.SetMaxOpenConns(cfg.MaxOpenConns)
+	db.SetMaxIdleConns(cfg.MaxIdleConns)
+	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	db.SetConnMaxIdleTime(cfg.ConnMaxIdleTime)
 
-	// Test the connection
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to ping database: %w", err)
@@ -59,24 +52,22 @@ func NewPostgresConnection(cfg PostgresConfig) (*sql.DB, error) {
 	return db, nil
 }
 
-// DefaultWriteConfig returns recommended configuration for write (primary) database
 func DefaultWriteConfig() PostgresConfig {
 	return PostgresConfig{
-		MaxOpenConns:    50,              // Allow 50 concurrent writes
-		MaxIdleConns:    25,              // Keep 25 connections ready
-		ConnMaxLifetime: 5 * time.Minute, // Rotate connections every 5 minutes
-		ConnMaxIdleTime: 1 * time.Minute, // Close idle connections after 1 minute
-		SSLMode:         "disable",       // For local dev; use "require" in prod
+		MaxOpenConns:    50,
+		MaxIdleConns:    25,
+		ConnMaxLifetime: 5 * time.Minute,
+		ConnMaxIdleTime: 1 * time.Minute,
+		SSLMode:         "disable",
 	}
 }
 
-// DefaultReadConfig returns recommended configuration for read (replica) database
 func DefaultReadConfig() PostgresConfig {
 	return PostgresConfig{
-		MaxOpenConns:    100,             // Allow more concurrent reads
-		MaxIdleConns:    50,              // Keep more connections ready for burst reads
-		ConnMaxLifetime: 5 * time.Minute, // Rotate connections every 5 minutes
-		ConnMaxIdleTime: 2 * time.Minute, // Keep idle connections longer for read bursts
-		SSLMode:         "disable",       // For local dev; use "require" in prod
+		MaxOpenConns:    100,
+		MaxIdleConns:    50,
+		ConnMaxLifetime: 5 * time.Minute,
+		ConnMaxIdleTime: 2 * time.Minute,
+		SSLMode:         "disable",
 	}
 }

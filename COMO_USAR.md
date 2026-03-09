@@ -84,19 +84,19 @@ curl http://localhost:8080/metrics
 
 ## 🐛 Debug
 
-### Ver logs do container:
+### Ver logs do app:
 ```bash
-docker logs url-shortener -f
+docker compose logs -f app
 ```
 
 ### Ver status dos containers:
 ```bash
-docker ps
+docker compose ps
 ```
 
 ### Reiniciar sistema:
 ```bash
-docker-compose -f docker-compose.minimal.yml restart app
+docker compose restart app
 ```
 
 ---

@@ -66,7 +66,6 @@ func main() {
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
 
-	// Start workers
 	for i := 0; i < *concurrency; i++ {
 		wg.Add(1)
 		go func(workerID int) {
@@ -82,10 +81,10 @@ func main() {
 					var err error
 
 					if rand.Float64() < *createRatio {
-						// Create new short URL
+
 						err = createShortURL(client, *baseURL, shortURLs)
 					} else {
-						// Access existing short URL
+
 						err = accessShortURL(client, *baseURL, shortURLs)
 					}
 
@@ -100,7 +99,6 @@ func main() {
 		}(i)
 	}
 
-	// Progress ticker
 	ticker := time.NewTicker(1 * time.Second)
 	go func() {
 		for {
@@ -116,13 +114,11 @@ func main() {
 		}
 	}()
 
-	// Run for duration
 	time.Sleep(*duration)
 	close(stop)
 	ticker.Stop()
 	wg.Wait()
 
-	// Print results
 	fmt.Printf("\n" + "═"*50 + "\n")
 	fmt.Printf("📈 RESULTS\n")
 	fmt.Printf("═"*50 + "\n")
@@ -165,10 +161,10 @@ func createShortURL(client *http.Client, baseURL string, store *sync.Map) error 
 }
 
 func accessShortURL(client *http.Client, baseURL string, store *sync.Map) error {
-	// Try to get a random stored URL
+
 	var shortURL string
 	store.Range(func(key, value interface{}) bool {
-		if rand.Float32() < 0.1 { // Random sampling
+		if rand.Float32() < 0.1 {
 			shortURL = value.(string)
 			return false
 		}
@@ -176,11 +172,10 @@ func accessShortURL(client *http.Client, baseURL string, store *sync.Map) error 
 	})
 
 	if shortURL == "" {
-		// No URLs stored yet, create one instead
+
 		return createShortURL(client, baseURL, store)
 	}
 
-	// Disable redirect to measure just the response time
 	noRedirectClient := &http.Client{
 		Timeout: 5 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {

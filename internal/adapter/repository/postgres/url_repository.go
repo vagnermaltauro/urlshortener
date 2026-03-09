@@ -11,15 +11,11 @@ import (
 	"urlshortner/internal/domain/repository"
 )
 
-// PostgresURLRepository implements the URLRepository interface using PostgreSQL
 type PostgresURLRepository struct {
-	writeDB *sql.DB // Primary database for writes
-	readDB  *sql.DB // Replica database for reads (can be same as writeDB in dev)
+	writeDB *sql.DB
+	readDB  *sql.DB
 }
 
-// NewPostgresURLRepository creates a new PostgreSQL URL repository
-// writeDB should point to the primary (master) database
-// readDB should point to a read replica (or primary if no replicas available)
 func NewPostgresURLRepository(writeDB, readDB *sql.DB) repository.URLRepository {
 	return &PostgresURLRepository{
 		writeDB: writeDB,
@@ -27,8 +23,6 @@ func NewPostgresURLRepository(writeDB, readDB *sql.DB) repository.URLRepository 
 	}
 }
 
-// Save persists a URL to PostgreSQL
-// Uses INSERT ON CONFLICT to handle potential duplicate IDs (upsert)
 func (r *PostgresURLRepository) Save(ctx context.Context, url entity.URL) error {
 	query := `
 		INSERT INTO urls (id, short_code, original_url, clicks, created_at, expires_at)
@@ -47,9 +41,8 @@ func (r *PostgresURLRepository) Save(ctx context.Context, url entity.URL) error 
 		url.ExpiresAt,
 	)
 
-	// Handle unique constraint violation on short_code
 	if pqErr, ok := err.(*pq.Error); ok {
-		if pqErr.Code == "23505" { // unique_violation
+		if pqErr.Code == "23505" {
 			return repository.ErrDuplicateKey
 		}
 	}
@@ -57,8 +50,6 @@ func (r *PostgresURLRepository) Save(ctx context.Context, url entity.URL) error 
 	return err
 }
 
-// FindByShortCode retrieves a URL by its short code from a read replica
-// Returns repository.ErrNotFound if the URL doesn't exist or has expired
 func (r *PostgresURLRepository) FindByShortCode(ctx context.Context, shortCode string) (*entity.URL, error) {
 	query := `
 		SELECT id, short_code, original_url, clicks, created_at, expires_at
@@ -86,49 +77,38 @@ func (r *PostgresURLRepository) FindByShortCode(ctx context.Context, shortCode s
 	return &url, nil
 }
 
-// IncrementClicks atomically increments the click counter for a single URL
 func (r *PostgresURLRepository) IncrementClicks(ctx context.Context, shortCode string) error {
 	query := `UPDATE urls SET clicks = clicks + 1 WHERE short_code = $1`
 	_, err := r.writeDB.ExecContext(ctx, query, shortCode)
 	return err
 }
 
-// BatchIncrementClicks atomically increments click counters for multiple URLs in a transaction
-// This is used by the background job to flush buffered clicks from Redis
-// The map key is the short code, the value is the increment amount
 func (r *PostgresURLRepository) BatchIncrementClicks(ctx context.Context, clicks map[string]int64) error {
 	if len(clicks) == 0 {
 		return nil
 	}
 
-	// Begin transaction
 	tx, err := r.writeDB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback() // Rollback if we don't commit
+	defer tx.Rollback()
 
-	// Prepare statement for reuse
 	stmt, err := tx.PrepareContext(ctx, `UPDATE urls SET clicks = clicks + $1 WHERE short_code = $2`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	// Execute update for each URL
 	for shortCode, count := range clicks {
 		if _, err := stmt.ExecContext(ctx, count, shortCode); err != nil {
-			return err // Transaction will rollback
+			return err
 		}
 	}
 
-	// Commit transaction
 	return tx.Commit()
 }
 
-// DeleteExpired removes all URLs that expired before the given time
-// Returns the number of URLs deleted
-// This should be called periodically by a background job
 func (r *PostgresURLRepository) DeleteExpired(ctx context.Context, before time.Time) (int64, error) {
 	query := `DELETE FROM urls WHERE expires_at < $1`
 	result, err := r.writeDB.ExecContext(ctx, query, before)

@@ -18,7 +18,6 @@ func NewSQLiteRepository(dbPath string) (*SQLiteRepository, error) {
 		return nil, err
 	}
 
-	// Create table if not exists - using TEXT for ISO 8601 date
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS urls (
 			id TEXT PRIMARY KEY,
@@ -66,4 +65,3 @@ func (r *SQLiteRepository) IncrementClicks(ctx context.Context, id string) error
 func (r *SQLiteRepository) Close() error {
 	return r.db.Close()
 }
-

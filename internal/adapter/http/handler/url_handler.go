@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -15,7 +16,6 @@ import (
 	"urlshortner/internal/usecase"
 )
 
-// URLHandler handles HTTP requests for URL shortening operations
 type URLHandler struct {
 	createUseCase    *usecase.CreateShortURLUseCase
 	getUseCase       *usecase.GetOriginalURLUseCase
@@ -23,7 +23,6 @@ type URLHandler struct {
 	log              logger.Logger
 }
 
-// NewURLHandler creates a new URL handler
 func NewURLHandler(
 	createUseCase *usecase.CreateShortURLUseCase,
 	getUseCase *usecase.GetOriginalURLUseCase,
@@ -38,18 +37,15 @@ func NewURLHandler(
 	}
 }
 
-// ServeHome serves the static HTML homepage
 func (h *URLHandler) ServeHome(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/static/index.html")
 }
 
-// CreateShortURL handles POST /api/shorten
 func (h *URLHandler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	traceID := middleware.GetReqID(ctx)
 	start := time.Now()
 
-	// Parse request
 	var req dto.CreateShortURLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		metrics.IncrementErrors()
@@ -57,14 +53,12 @@ func (h *URLHandler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate URL
 	if req.URL == "" {
 		metrics.IncrementErrors()
 		h.respondError(w, "validation_error", "URL is required", http.StatusBadRequest, traceID)
 		return
 	}
 
-	// Execute use case
 	url, err := h.createUseCase.Execute(ctx, req.URL)
 	if err != nil {
 		metrics.IncrementErrors()
@@ -83,7 +77,6 @@ func (h *URLHandler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Track metrics
 	metrics.IncrementURLsCreated()
 	metrics.RecordCreateDuration(time.Since(start))
 
@@ -92,7 +85,6 @@ func (h *URLHandler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 		"trace_id", traceID,
 		"duration_ms", time.Since(start).Milliseconds())
 
-	// Build full short URL
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -103,7 +95,6 @@ func (h *URLHandler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 	}
 	shortURL := scheme + "://" + host + "/" + url.ShortCode
 
-	// Return response
 	resp := dto.CreateShortURLResponse{
 		ShortURL:  shortURL,
 		ShortCode: url.ShortCode,
@@ -115,7 +106,6 @@ func (h *URLHandler) CreateShortURL(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Redirect handles GET /{shortCode}
 func (h *URLHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	traceID := middleware.GetReqID(ctx)
@@ -127,7 +117,6 @@ func (h *URLHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get original URL
 	url, err := h.getUseCase.Execute(ctx, shortCode)
 	duration := time.Since(start)
 
@@ -152,14 +141,14 @@ func (h *URLHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Increment clicks asynchronously (non-blocking for performance)
 	go func() {
-		if err := h.incrementUseCase.Execute(ctx, shortCode); err != nil {
+		incrementCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := h.incrementUseCase.Execute(incrementCtx, shortCode); err != nil {
 			h.log.Error("Failed to increment clicks", "short_code", shortCode, "error", err)
 		}
 	}()
 
-	// Track metrics
 	metrics.IncrementRedirects()
 	metrics.RecordRedirectDuration(duration)
 
@@ -169,11 +158,12 @@ func (h *URLHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 		"trace_id", traceID,
 		"duration_ms", duration.Milliseconds())
 
-	// Redirect to original URL
-	http.Redirect(w, r, url.OriginalURL, http.StatusMovedPermanently)
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	http.Redirect(w, r, url.OriginalURL, http.StatusFound)
 }
 
-// respondError sends an error response
 func (h *URLHandler) respondError(w http.ResponseWriter, errorType, message string, status int, traceID string) {
 	resp := dto.ErrorResponse{
 		Error:   errorType,
